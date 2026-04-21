@@ -1,0 +1,5 @@
+Model,MAE,R2,CV_R2,Accuracy
+Sales_Amount,210631.0,0.901,0.9235,
+Profit_Margin,0.16,0.4701,0.4209,
+Sell_Quantity,27.63,0.8531,0.8116,
+Profit_Classifier,,,,0.8103
