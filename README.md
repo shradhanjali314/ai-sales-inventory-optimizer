@@ -1,179 +1,111 @@
-# Smart Retail Intelligence — ML Project
+# BizzInsight AI — Smart Retail Intelligence
 
-A complete machine learning pipeline for retail shop analytics.
-Built from two real datasets: transaction-level sales data + store inventory data.
-
----
-
-## What This Project Does
-
-Given your shop's monthly sales and inventory records, the system:
-
-- **Predicts** future sales, profit margins, and how many units to sell
-- **Classifies** each product-region segment as High Profit or Low Profit
-- **Calculates** gross profit, net profit, transport costs, and margin %
-- **Splits** sales into Spot (counter/retail) vs Online channels
-- **Produces** daily/monthly/yearly summaries
-- **Generates** an improvement report — where to price better, discount less, stock smarter
-- **Visualises** everything in an interactive HTML dashboard
+ML-powered analytics dashboard for retail sales, profit prediction, and inventory optimisation.
 
 ---
 
 ## Project Structure
 
 ```
-smart_retail_ml/
-├── build_dataset.py       ← Step 1: merge + feature engineering
-├── ml_pipeline.py         ← Step 2: train models + generate predictions
-├── dashboard.html         ← Interactive visual dashboard
-├── master_dataset.csv     ← Merged engineered dataset (41 features)
-├── predictions.csv        ← Full predictions for all segments
-├── monthly_summary.csv    ← Monthly aggregated KPIs
-├── yearly_summary.csv     ← Yearly aggregated KPIs
-├── improvement_report.csv ← Per-segment improvement recommendations
-├── feature_importance.csv ← What drives sales most
-└── model_scores.csv       ← R², MAE, CV scores per model
+your_project_folder/
+├── sales_data.csv                ← raw input (required)
+├── retail_store_inventory.csv    ← raw input (required)
+├── build_dataset.py
+├── ml_pipeline.py
+├── app.py
+├── requirements.txt
+└── smart_retail_ml/              ← auto-created by the scripts
+    ├── master_dataset.csv
+    ├── predictions.csv
+    ├── monthly_summary.csv
+    ├── yearly_summary.csv
+    ├── improvement_report.csv
+    ├── feature_importance.csv
+    └── model_scores.csv
 ```
 
 ---
 
-## The 4 ML Models
+## Setup & Run
 
-| # | Model | Algorithm | Predicts | Score |
-|---|-------|-----------|----------|-------|
-| A | Sales Amount Predictor | Random Forest Regressor | Total monthly revenue per segment | R² = 0.70 (CV) |
-| B | Profit Margin Predictor | Gradient Boosting Regressor | Net profit margin % | R² = 0.12 |
-| C | Sell Quantity Predictor | Random Forest Regressor | Units to sell per month | R² = 0.72 (CV) |
-| D | Profit Classifier | Random Forest Classifier | High / Low Profit label | Accuracy = 71.8% |
-
-Model B (margin) has a low R² because margin depends heavily on cost data that varies per transaction, not captured in monthly aggregates. 
-**To improve it: add transaction-level cost/price variance as features.**
-
----
-
-## What the Dashboard Shows
-
-### Tab 1 — Overview
-- Total Revenue, Net Profit, Avg Margin, Units Sold (KPI cards)
-- Monthly Sales vs Profit trend chart (2023)
-- Sales breakdown by Category (donut chart)
-- Revenue by Region (horizontal bar)
-- Spot vs Online sales split by category
-
-### Tab 2 — Predictions
-- Filterable table: actual vs predicted sales, profit, margin, sell qty, transport cost, profit class
-- Filter by Region and Category
-
-### Tab 3 — Improvements
-- Margin gap vs top quartile (where you're losing money)
-- Avg discount % heatmap (who is over-discounting)
-- 8 actionable recommendations with specific segments named
-
-### Tab 4 — ML Models
-- Model cards with scores and confidence bars
-- Feature importance chart — what actually drives sales
-
----
-
-## Key Findings
-
-1. **Transaction count** is by far the #1 driver of sales (0.75 importance) — more customers > everything else
-2. **West · Furniture** has the worst margin at 30.9% — 30pp below top performers
-3. **West · Food** is the star performer at 60.2% margin — study and replicate
-4. **All segments are over-stocked** (>60 days inventory) — capital is being wasted on excess stock
-5. **Blanket discounts** (avg 13–17%) are dragging profit — switching to loyalty rewards would improve margins
-6. **Electronics in West** is heavily online (68.8%) — signals a market ready for digital-first strategy
-7. **North is the strongest region** overall by both revenue and profit
-
----
-
-## Features in the Master Dataset (41 columns)
-
-**Sales Features**
-- Total_Sales_Amount, Total_Qty_Sold, Num_Transactions
-- Avg_Unit_Cost, Avg_Unit_Price, Avg_Discount_Sales
-- New_Customers, Returning_Customers
-- Online_Txn, Retail_Txn (spot vs online count)
-
-**Inventory Features**
-- Inventory_Level, Units_Sold_Online, Units_Ordered
-- Demand_Forecast, Competitor_Pricing
-- Weather_Mode, Holiday_Days, Seasonality
-
-**Engineered Features**
-- Gross_Profit = Sales − Cost of Goods
-- Transport_Cost_Est = 2% of COGS (adjustable)
-- Net_Profit = Gross Profit − Transport Cost
-- Net_Profit_Margin, Profit_Margin_Pct
-- Spot_Sales_Ratio, Online_Sales_Ratio
-- Fulfillment_Rate = Units Sold / Demand Forecast
-- Inventory_Coverage = days of stock on hand
-- Price_vs_Competitor = your price − competitor price
-- Recommended_Price = Cost × 1.40 (40% target margin)
-- Recommended_Order_Qty = Demand × 1.15 (15% safety stock)
-- Sales_Growth_MoM, Profit_Growth_MoM
-
----
-
-## What You Can Add Next
-
-| Feature | Benefit |
-|---------|---------|
-| Supplier name / lead time | Predict stockout risk more accurately |
-| Actual transportation bills | Replace the 2% estimate with real data |
-| Customer ID / loyalty tier | Enable customer-level CLV prediction |
-| Footfall / walk-in count | Separate spot discovery from repeat purchases |
-| Product weight / volume | Better transport cost estimation per SKU |
-| Seasonal promotions flag | Isolate promotional uplift vs organic growth |
-| Return / damage rate | True net-net profit calculation |
-| Weather API integration | Automated demand forecasting by weather |
-| WhatsApp / social orders | Track digital-word-of-mouth channel separately |
-| Daily sales log | Enable day-of-week pattern analysis |
-
----
-
-## Does Anything Like This Already Exist?
-
-Yes — but they are expensive enterprise tools:
-
-| Product | What it does | Cost |
-|---------|-------------|------|
-| **SAP Retail** | Full retail ERP + analytics | Enterprise pricing |
-| **Microsoft Dynamics 365** | Sales + inventory AI | ₹5,000–₹25,000/month |
-| **Zoho Analytics** | BI + basic ML | ₹1,000–₹5,000/month |
-| **Google Looker** | Dashboards | Usage-based billing |
-| **Vyapar / Marg ERP** | Indian SME accounting + reports | ₹2,000–₹8,000/year |
-
-**This project is different**: it is fully local, free, customisable, and built on your actual data. 
-No subscription. No data leaving your machine. You own the model.
-
----
-
-## How to Run
-
+### 1. Install dependencies
 ```bash
-# Step 1: Build master dataset
-python3 build_dataset.py
-
-# Step 2: Train models + generate all outputs
-python3 ml_pipeline.py
-
-# Step 3: Open dashboard
-open dashboard.html    # macOS
-xdg-open dashboard.html  # Linux
+pip install -r requirements.txt
 ```
 
-**Dependencies**: pandas, numpy, scikit-learn (all standard — no external install needed if Anaconda/standard Python is present)
+### 2. Build the master dataset
+```bash
+python build_dataset.py
+```
+This merges `sales_data.csv` + `retail_store_inventory.csv` and engineers all features.
+Output: `smart_retail_ml/master_dataset.csv`
+
+### 3. Train models & generate predictions
+```bash
+python ml_pipeline.py
+```
+This trains 4 ML models and saves all output CSVs to `smart_retail_ml/`.
+
+### 4. Launch the Streamlit dashboard
+```bash
+streamlit run app.py
+```
+Then open `http://localhost:8501` in your browser.
 
 ---
 
-## To Retrain on Your Own Data
+## Raw Data Column Requirements
 
-Replace the two CSV paths at the top of `build_dataset.py`:
-```python
-sales = pd.read_csv("YOUR_sales_file.csv", ...)
-inv   = pd.read_csv("YOUR_inventory_file.csv", ...)
-```
+### sales_data.csv
+| Column | Type | Notes |
+|---|---|---|
+| Sale_Date | date | YYYY-MM-DD |
+| Region | string | East / North / South / West |
+| Product_Category | string | Clothing / Electronics / Food / Furniture |
+| Sales_Amount | float | total ₹ for that transaction |
+| Quantity_Sold | int | |
+| Unit_Cost | float | cost of goods for that transaction |
+| Unit_Price | float | selling price for that transaction |
+| Discount | float | 0–1 decimal (e.g. 0.15 = 15%) |
+| Product_ID | string / int | used as transaction count |
+| Customer_Type | string | New / Returning |
+| Sales_Channel | string | Online / Retail |
 
-Make sure your files have columns matching the names used, or update the column references accordingly.
-The pipeline is modular — each section is clearly labelled and can be extended independently.
+### retail_store_inventory.csv
+| Column | Type | Notes |
+|---|---|---|
+| Date | date | YYYY-MM-DD |
+| Region | string | East / North / South / West |
+| Category | string | Clothing / Electronics / **Groceries** / Furniture |
+| Inventory Level | float | units on hand |
+| Units Sold | int | online units sold |
+| Units Ordered | int | |
+| Demand Forecast | float | |
+| Price | float | |
+| Discount | float | 0–1 decimal |
+| Weather Condition | string | |
+| Holiday/Promotion | int | 0 or 1 |
+| Competitor Pricing | float | |
+| Seasonality | string | |
+
+> **Note:** The inventory file uses "Groceries" — the pipeline automatically maps this to "Food" to match `sales_data.csv`.
+
+---
+
+## Models
+
+| Model | Algorithm | Target |
+|---|---|---|
+| Sales Amount Predictor | Random Forest Regressor | Total_Sales_Amount |
+| Profit Margin Predictor | Gradient Boosting Regressor | Net_Profit_Margin |
+| Sell Quantity Predictor | Random Forest Regressor | Total_Qty_Sold |
+| Profit Classifier | Random Forest Classifier | High / Low Profit |
+
+---
+
+## Dashboard Tabs
+
+- **Overview** — KPIs, monthly trend, category & region breakdown, channel split
+- **Predictions** — Predicted vs actual scatter, monthly trend, segment table
+- **Improvements** — Margin gaps, discount analysis, inventory coverage, action recommendations
+- **ML Models** — Model scorecards, feature importances, cross-model comparison
