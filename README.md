@@ -2,6 +2,8 @@
 
 ML-powered analytics dashboard for retail sales, profit prediction, and inventory optimisation.
 
+https://bizz-insight.streamlit.app/
+
 ---
 
 ## Project Structure
