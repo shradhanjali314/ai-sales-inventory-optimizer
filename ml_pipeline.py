@@ -16,17 +16,7 @@
     improvement_report.csv
     feature_importance.csv
     model_scores.csv
-
-  FIXES vs original:
-  - FEATURE_COLS pruned: removed features that leak the target
-    (Avg_Unit_Price leaks Sales_Amount; kept Avg_Unit_Cost only)
-  - Profit_Class threshold uses training-set median, not full-set
-    (avoids data leakage)
-  - cross_val_score called on untrained estimator (clone) to avoid
-    leakage from already-fitted model
-  - improvement_report correctly uses actual margin stats
-  - All column references validated against master_dataset columns
-  - Added Inventory_Coverage to PRED_COLS (was missing)
+    future_predictions.csv   ← generates 12-month forward forecast per segment
 ============================================================
 """
 
@@ -75,7 +65,7 @@ for col in ["Region", "Category", "Weather_Mode", "Seasonality"]:
 FEATURE_COLS = [
     "Region_enc", "Category_enc",
     "Year", "MonthNum", "Quarter",
-    "Avg_Unit_Cost",           # cost side — does not leak revenue
+    "Avg_Unit_Cost",
     "Avg_Discount_Sales",
     "Num_Transactions",
     "New_Customers", "Returning_Customers",
@@ -88,11 +78,9 @@ FEATURE_COLS = [
     "Recommended_Order_Qty",
 ]
 
-# Rows where ALL features AND targets are present
 TARGET_COLS = ["Total_Sales_Amount", "Net_Profit_Margin", "Total_Qty_Sold"]
 df_model = df.dropna(subset=FEATURE_COLS + TARGET_COLS).copy().reset_index(drop=True)
 
-# Fill any remaining feature NaNs with column median
 X = df_model[FEATURE_COLS].apply(lambda c: c.fillna(c.median()))
 
 print(f"Modelling rows   : {len(df_model)}")
@@ -160,7 +148,6 @@ scores_log["Sell_Quantity"] = {"MAE": round(mae_q, 2), "R2": round(r2_q, 4), "CV
 # ══════════════════════════════════════════════════════════
 print("\n── Model D: Profit Class Classifier ──")
 
-# Use TRAINING SET median to set threshold (avoids leakage)
 X_tr4, X_te4, y_margin_tr, y_margin_te = train_test_split(
     X, y_margin, test_size=0.2, random_state=42
 )
@@ -182,7 +169,6 @@ print(classification_report(y_cls_te, y_pred_cls,
                              target_names=["Low Profit", "High Profit"]))
 scores_log["Profit_Classifier"] = {"Accuracy": round(acc, 4)}
 
-# Store threshold for app use
 df_model["Profit_Threshold"] = threshold
 
 # ══════════════════════════════════════════════════════════
@@ -197,7 +183,6 @@ df_model["Predicted_Profit_Class"]  = pd.Series(
     rf_cls.predict(X_full), index=df_model.index
 ).map({1: "High Profit", 0: "Low Profit"})
 
-# Derived predictions
 df_model["Predicted_Gross_Profit"]   = (
     df_model["Predicted_Sales"] * (df_model["Predicted_Margin_Pct"] / 100)
 )
@@ -310,7 +295,150 @@ fi_df = pd.DataFrame({
 }).sort_values("Importance_Sales", ascending=False).reset_index(drop=True)
 
 # ══════════════════════════════════════════════════════════
-# 11. Save all outputs
+# 11. FUTURE PREDICTIONS
+# ══════════════════════════════════════════════════════════
+print("\n── Generating 12-month Future Predictions ──")
+
+def generate_future_predictions(df_hist, label_encoders, feature_cols,
+                                 rf_sales, gb_margin, rf_qty, rf_cls,
+                                 threshold, n_months=12):
+    last_month   = df_hist["Month"].max()
+    regions      = df_hist["Region"].unique()
+    categories   = df_hist["Category"].unique()
+
+    future_rows = []
+
+    for region in regions:
+        for cat in categories:
+            seg = df_hist[
+                (df_hist["Region"] == region) &
+                (df_hist["Category"] == cat)
+            ].sort_values("Month").copy()
+
+            if len(seg) < 3:
+                continue
+
+            recent = seg.tail(12)
+
+            # Monthly averages keyed by month number
+            monthly_avg = {}
+            for mn, grp in recent.groupby("MonthNum"):
+                monthly_avg[mn] = {
+                    "Total_Sales_Amount": grp["Total_Sales_Amount"].mean(),
+                    "Net_Profit_Margin":  grp["Net_Profit_Margin"].mean(),
+                    "Total_Qty_Sold":     grp["Total_Qty_Sold"].mean(),
+                }
+
+            x_idx = np.arange(len(seg))
+            def _slope(series):
+                if series.std() == 0 or len(series) < 2:
+                    return 0.0
+                return np.polyfit(x_idx, series.values, 1)[0]
+
+            slope_sales  = _slope(seg["Total_Sales_Amount"])
+            slope_margin = _slope(seg["Net_Profit_Margin"])
+            slope_qty    = _slope(seg["Total_Qty_Sold"])
+
+            template = recent.iloc[-1].copy()
+
+            for i in range(1, n_months + 1):
+                future_month = last_month + pd.DateOffset(months=i)
+                month_num    = future_month.month
+                year         = future_month.year
+                quarter      = (month_num - 1) // 3 + 1
+
+                # Seasonal base — fall back to recent mean if month not in history
+                base = monthly_avg.get(month_num, {
+                    "Total_Sales_Amount": recent["Total_Sales_Amount"].mean(),
+                    "Net_Profit_Margin":  recent["Net_Profit_Margin"].mean(),
+                    "Total_Qty_Sold":     recent["Total_Qty_Sold"].mean(),
+                })
+                base_sales  = base["Total_Sales_Amount"]
+                base_margin = base["Net_Profit_Margin"]
+                base_qty    = base["Total_Qty_Sold"]
+
+                offset     = len(seg) + i
+                exp_sales  = max(base_sales  + slope_sales  * (offset - x_idx.mean()), 0)
+                exp_margin = base_margin + slope_margin * (offset - x_idx.mean())
+                exp_qty    = max(base_qty + slope_qty * (offset - x_idx.mean()), 0)
+
+                feat_row = {
+                    "Region_enc"           : label_encoders["Region"].transform([region])[0],
+                    "Category_enc"         : label_encoders["Category"].transform([cat])[0],
+                    "Year"                 : year,
+                    "MonthNum"             : month_num,
+                    "Quarter"              : quarter,
+                    "Avg_Unit_Cost"        : template.get("Avg_Unit_Cost",       0),
+                    "Avg_Discount_Sales"   : template.get("Avg_Discount_Sales",  0),
+                    "Num_Transactions"     : template.get("Num_Transactions",    0),
+                    "New_Customers"        : template.get("New_Customers",       0),
+                    "Returning_Customers"  : template.get("Returning_Customers", 0),
+                    "Online_Txn"           : template.get("Online_Txn",          0),
+                    "Retail_Txn"           : template.get("Retail_Txn",          0),
+                    "Inventory_Level"      : template.get("Inventory_Level",     0),
+                    "Units_Ordered"        : template.get("Units_Ordered",       0),
+                    "Demand_Forecast"      : exp_qty * 1.10,
+                    "Avg_Discount_Inv"     : template.get("Avg_Discount_Inv",    0),
+                    "Holiday_Days"         : template.get("Holiday_Days",        0),
+                    "Competitor_Pricing"   : template.get("Competitor_Pricing",  0),
+                    "Seasonality_enc"      : template.get("Seasonality_enc",     0),
+                    "Weather_Mode_enc"     : template.get("Weather_Mode_enc",    0),
+                    "Price_vs_Competitor"  : template.get("Price_vs_Competitor", 0),
+                    "Fulfillment_Rate"     : template.get("Fulfillment_Rate",    1),
+                    "Recommended_Order_Qty": exp_qty * 1.15,
+                }
+
+                feat_vals = pd.DataFrame([feat_row])[feature_cols]
+
+                ml_sales  = float(rf_sales.predict(feat_vals)[0])
+                ml_margin = float(gb_margin.predict(feat_vals)[0])
+                ml_qty    = float(rf_qty.predict(feat_vals)[0])
+                ml_cls    = int(rf_cls.predict(feat_vals)[0])
+
+                f_sales  = 0.6 * ml_sales  + 0.4 * exp_sales
+                f_margin = 0.6 * ml_margin + 0.4 * exp_margin
+                f_qty    = max(0, 0.6 * ml_qty + 0.4 * exp_qty)
+
+                sales_std = recent["Total_Sales_Amount"].std()
+                conf_band = sales_std * np.sqrt(i)
+
+                avg_unit_cost = template.get("Avg_Unit_Cost", 0)
+                f_net_profit  = f_sales * (f_margin / 100) - avg_unit_cost * f_qty * 0.02
+
+                future_rows.append({
+                    "Month"                : future_month,
+                    "Region"               : region,
+                    "Category"             : cat,
+                    "Forecast_Sales"       : round(f_sales,  2),
+                    "Forecast_Margin_Pct"  : round(f_margin, 2),
+                    "Forecast_Qty"         : int(round(f_qty)),
+                    "Forecast_Net_Profit"  : round(f_net_profit, 2),
+                    "Forecast_Profit_Class": "High Profit" if ml_cls == 1 else "Low Profit",
+                    "Forecast_Lower_Sales" : round(max(0, f_sales - conf_band), 2),
+                    "Forecast_Upper_Sales" : round(f_sales + conf_band, 2),
+                    "Months_Ahead"         : i,
+                })
+
+    return pd.DataFrame(future_rows)
+
+
+future_df = generate_future_predictions(
+    df_hist        = df_model,
+    label_encoders = label_encoders,
+    feature_cols   = FEATURE_COLS,
+    rf_sales       = rf_sales,
+    gb_margin      = gb_margin,
+    rf_qty         = rf_qty,
+    rf_cls         = rf_cls,
+    threshold      = threshold,
+    n_months       = 12,
+)
+
+print(f"  Future prediction rows: {len(future_df)}")
+print(f"  Forecast period: {future_df['Month'].min().strftime('%b %Y')} → {future_df['Month'].max().strftime('%b %Y')}")
+
+# ══════════════════════════════════════════════════════════
+# 12. Save all outputs
 # ══════════════════════════════════════════════════════════
 PRED_COLS = [
     "Month", "Region", "Category",
@@ -327,22 +455,22 @@ PRED_COLS = [
     "Sales_Growth_MoM", "Profit_Growth_MoM",
     "Fulfillment_Rate",
 ]
-
-# Only keep columns that exist (guard against schema drift)
 PRED_COLS = [c for c in PRED_COLS if c in df_model.columns]
 
-df_model[PRED_COLS].to_csv(f"{PROJECT_DIR}/predictions.csv",      index=False)
-monthly.to_csv(            f"{PROJECT_DIR}/monthly_summary.csv",   index=False)
-yearly.to_csv(             f"{PROJECT_DIR}/yearly_summary.csv",    index=False)
-improvement_df.to_csv(     f"{PROJECT_DIR}/improvement_report.csv",index=False)
-fi_df.to_csv(              f"{PROJECT_DIR}/feature_importance.csv",index=False)
+df_model[PRED_COLS].to_csv(f"{PROJECT_DIR}/predictions.csv",         index=False)
+monthly.to_csv(            f"{PROJECT_DIR}/monthly_summary.csv",      index=False)
+yearly.to_csv(             f"{PROJECT_DIR}/yearly_summary.csv",       index=False)
+improvement_df.to_csv(     f"{PROJECT_DIR}/improvement_report.csv",   index=False)
+fi_df.to_csv(              f"{PROJECT_DIR}/feature_importance.csv",   index=False)
+future_df.to_csv(          f"{PROJECT_DIR}/future_predictions.csv",   index=False)
 pd.DataFrame(scores_log).T.reset_index().rename(
     columns={"index": "Model"}
 ).to_csv(f"{PROJECT_DIR}/model_scores.csv", index=False)
 
 print("\n✅  All outputs saved:")
 for f in ["predictions.csv", "monthly_summary.csv", "yearly_summary.csv",
-          "improvement_report.csv", "feature_importance.csv", "model_scores.csv"]:
+          "improvement_report.csv", "feature_importance.csv",
+          "model_scores.csv", "future_predictions.csv"]:
     path = f"{PROJECT_DIR}/{f}"
     if os.path.exists(path):
         rows = len(pd.read_csv(path))
