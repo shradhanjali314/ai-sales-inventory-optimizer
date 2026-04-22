@@ -1,4 +1,4 @@
-# BizzInsight AI — Smart Retail Intelligence
+# BizzInsight — Smart Retail Intelligence
 
 ML-powered analytics dashboard for retail sales, profit prediction, and inventory optimisation.
 
